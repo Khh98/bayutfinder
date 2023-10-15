@@ -1,0 +1,14 @@
+beautifulsoup4==4.9.3
+pandas==1.4.4
+Pillow==9.2.0
+plotly==5.9.0
+plotly-express==0.4.1
+regex==2022.7.9
+requests==2.30.0
+streamlit==1.27.1
+streamlit-extras==0.2.6
+streamlit-lottie==0.0.3
+tqdm== 4.64.1
+geopy==2.3.0
+streamlit_echarts==0.4.0
+numpy==1.23.5
