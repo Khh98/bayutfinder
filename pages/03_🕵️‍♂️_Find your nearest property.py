@@ -17,7 +17,7 @@ from geopy.distance import geodesic
 
 colored_header(
     label="Find Nearest Property in Dubai (per month)",
-    description="",
+    description="Prices are subject to changes due to real estate trends",
     color_name="blue-70"
 )
 
