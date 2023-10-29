@@ -9,6 +9,7 @@ from streamlit_echarts import st_echarts
 from bs4 import BeautifulSoup as bs
 import numpy as np
 import re
+import base64
 import sys
 from tqdm import tqdm
 from datetime import datetime
@@ -44,8 +45,8 @@ def get_url(furnished='all',rent_frequency='yearly',emirate='dubai',page=1):
   return url
 
 
-
-def get_property(emirate='dubai',furnished='all',rent_frequency='yearly',fast_scrape=False):
+@st.cache_data
+def scrape_and_filter_data(emirate='dubai',furnished='all',rent_frequency='yearly',fast_scrape=False):
     emirate = emirate.lower().replace(' ','-')
     assert emirate in Emirates_values, f'emirate attr must be one of {Emirates_values}'
     assert furnished in ['all','furnished','unfurnished'], f"furnished attr must be one of {['all','furnished','unfurnished']}"
@@ -113,42 +114,47 @@ def get_property(emirate='dubai',furnished='all',rent_frequency='yearly',fast_sc
 }
 
     df = pd.DataFrame(col_dict)
-    filtered_df= dataframe_explorer(df)
-    st.dataframe(filtered_df, use_container_width=True)
+    return df
+    #filtered_df= dataframe_explorer(df)
+# After displaying the filtered DataFrame
+
+
  # Input options
 colored_header(
     label="Data Collection",
     description="Use the following filters and click on scrape to get your desired property data",
     color_name="blue-70"
 )
-col1,col2,col3 = st.columns([2,2,2])
-with col1:
-   emirate = st.selectbox('Emirate', ['dubai','abu-dhabi','sharjah','ajman','umm-al-quwain','ras-al-khaimah','fujairah'])
-with col2:
-   furnished = st.selectbox('Furnished:', ['all','furnished', 'unfurnished'])
-with col3:
-   rent_frequency = st.selectbox('Rent Frequency:', ['monthly', 'yearly'])
-# Scrape button
-if st.button('Scrape'):
-        liquidfill_option = {
-    "series": [{"type": "liquidFill", "data": [0.6, 0.5, 0.4, 0.3]}]
-}
-        st_echarts(liquidfill_option)
-        get_property(emirate=emirate, furnished=furnished, rent_frequency=rent_frequency, fast_scrape=True)
-        # Display the scraped data in a DataFrame
-        st.write('Scraping complete!')
-        rain(
-    emoji="🥳",
-    font_size=54,
-    falling_speed=5,
-    animation_length="5",
-)
+
+def main():
+    col1,col2,col3 = st.columns([2,2,2])
+    with col1:
+      emirate = st.selectbox('Emirate', ['dubai','abu-dhabi','sharjah','ajman','umm-al-quwain','ras-al-khaimah','fujairah'])
+    with col2:
+     furnished = st.selectbox('Furnished:', ['all','furnished', 'unfurnished'])
+    with col3:
+      rent_frequency = st.selectbox('Rent Frequency:', ['monthly', 'yearly'])
+    
+    if st.button("Scrape and Download Data"):
+        filtered_data = scrape_and_filter_data(emirate, furnished, rent_frequency)
+
+        # Display filtered data
+        st.dataframe(filtered_data, use_container_width=True)
+        # Convert DataFrame to CSV
+        csv = filtered_data.to_csv(index=False)
+        # Download as CSV file
+        b64 = base64.b64encode(csv.encode()).decode()  # B64 encoding for download
+        href = f'<a href="data:file/csv;base64,{b64}" download="filtered_data.csv">Download CSV File</a>'
+        st.markdown(href, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
 
 st.write("")
 st.write("")
 colored_header(
     label="Locate My Bayut",
-    description="Interactive map to find your ideal property in Dubai (per month)",
+    description="This is a sample prototype on how to find properties(priced per month) with an interactive map in Dubai.",
     color_name="green-70"
 )
 
@@ -192,8 +198,6 @@ map.update_layout(margin={"r": 80, "t": 80, "l": 80, "b": 80})
 map_container = st.container()
 with map_container:
     st.plotly_chart(map)
-
-# Display the map
 
 
 
