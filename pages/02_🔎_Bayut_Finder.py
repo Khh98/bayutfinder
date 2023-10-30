@@ -161,15 +161,15 @@ colored_header(
 
 df_rental = pd.read_csv('ppties_dubai.csv')
 df_rental['prices'] = df_rental['prices'].str.replace(",","").astype("int64")
-
+df_rental =  df_rental[df_rental['prices']>0]
 #filters
 col11,col12,col13 = st.columns([2,2,2])
 with col11:
    selected_bedrooms = st.selectbox("Number of Rooms", df_rental["bedrooms"].unique())
 with col12:
-   min_price = st.number_input("Min Price", min_value=100, max_value=df_rental["prices"].max(), value=df_rental["prices"].min())
+   min_price = st.number_input("Min Price", min_value=df_rental["prices"].min(), max_value=df_rental["prices"].max(), value=df_rental["prices"].min())
 with col13:
-   max_price = st.number_input("Max Price", min_value=100, max_value=df_rental["prices"].max(), value=df_rental["prices"].max())
+   max_price = st.number_input("Max Price", min_value=df_rental["prices"].min(), max_value=df_rental["prices"].max(), value=df_rental["prices"].max())
 # Filter the data based on selected filters
 filtered_data = df_rental[(df_rental["bedrooms"] == selected_bedrooms) & (df_rental["prices"].between(min_price, max_price))]
 
