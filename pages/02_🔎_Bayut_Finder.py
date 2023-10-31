@@ -160,7 +160,7 @@ colored_header(
 
 
 df_rental = pd.read_csv('ppties_furnished_per_month.csv')
-df_rental['prices'] = df_rental['prices'].str.replace(",","").astype("int64")
+#df_rental['prices'] = df_rental['prices'].str.replace(",","").astype("int64")
 df_rental =  df_rental[df_rental['prices']>0]
 #filters
 col11,col12,col13 = st.columns([2,2,2])
