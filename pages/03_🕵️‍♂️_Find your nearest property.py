@@ -23,7 +23,7 @@ colored_header(
 
 # Load the property data
 df_rental = pd.read_csv('ppties_furnished_per_month.csv')
-df_rental['prices'] = df_rental['prices'].str.replace(",","").astype("int64")
+#df_rental['prices'] = df_rental['prices'].str.replace(",","").astype("int64")
 df_rental[['property_name', 'location_name']] = df_rental['locations'].str.split(', ', 1, expand=True)
 
 
