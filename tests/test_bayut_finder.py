@@ -1,0 +1,178 @@
+import re
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from bayut_finder import (SearchParams, add_value_score, build_search_url, community_summary,
+                          monthly_vs_yearly, normalize, parse_saved_pages, parse_search_page,
+                          scrape, with_distance)
+from bayut_finder.fetcher import BlockedError
+from bayut_finder.parser import looks_blocked
+
+FIXTURE = Path(__file__).parent / "fixtures" / "dubai_rent_page1.html"
+
+
+@pytest.fixture(scope="module")
+def html():
+    return FIXTURE.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------- urls
+def test_url_first_page_defaults():
+    url = build_search_url(SearchParams())
+    assert url == "https://www.bayut.com/to-rent/property/dubai/?rent_frequency=yearly"
+
+
+def test_url_with_filters_and_page():
+    p = SearchParams(emirate="Abu Dhabi", rent_frequency="monthly", category="apartments",
+                     location="Al Reem Island", furnishing="furnished", beds=[2, 1],
+                     price_max=9000, sort="price_asc")
+    url = build_search_url(p, page=3)
+    assert url.startswith("https://www.bayut.com/to-rent/apartments/abu-dhabi/al-reem-island/page-3/?")
+    assert "rent_frequency=monthly" in url
+    assert "furnishing_status=furnished" in url
+    assert "beds_in=1,2" in url
+    assert "price_max=9000" in url
+    assert "sort=price_asc" in url
+
+
+def test_invalid_emirate():
+    with pytest.raises(ValueError):
+        SearchParams(emirate="atlantis")
+
+
+# ---------------------------------------------------------------- parser
+def test_parse_saved_page(html):
+    listings, total = parse_search_page(html)
+    assert total == 118_858
+    assert len(listings) == 24
+    first = listings[0]
+    assert first["listing_id"] == "16646069"
+    assert first["url"] == "https://www.bayut.com/property/details-16646069.html"
+    assert first["price"] == 42_000
+    assert first["rent_frequency"] == "yearly"
+    assert first["bedrooms"] == 0  # studio
+    assert first["bathrooms"] == 1
+    assert first["area_sqft"] == 295
+    assert first["property_type"] == "Apartment"
+    assert first["community"] == "Meydan"
+    assert first["building"] == "Azizi Riviera 16"
+    assert first["emirate"] == "Dubai"
+    assert first["latitude"] == pytest.approx(25.1725, abs=1e-3)
+    assert first["longitude"] == pytest.approx(55.3022, abs=1e-3)
+    assert first["verified"] is True
+    for rec in listings:
+        for key in ("price", "latitude", "longitude", "title", "community", "url"):
+            assert rec.get(key) not in (None, ""), (key, rec["listing_id"])
+
+
+def test_cards_alone_still_parse(html):
+    """If bayut drops the JSON-LD block, aria-label cards are enough."""
+    no_ld = re.sub(r'<script type="application/ld\+json">.*?</script>', "", html, flags=re.S)
+    listings, total = parse_search_page(no_ld)
+    assert total == 118_858
+    assert len(listings) == 24
+    assert listings[0]["price"] == 42_000 and listings[0]["bedrooms"] == 0
+
+
+def test_jsonld_alone_still_parses(html):
+    """If bayut renames the aria-labels, the JSON-LD block is enough."""
+    no_cards = html.replace('aria-label="Listing"', 'aria-label="x"')
+    listings, _ = parse_search_page(no_cards)
+    assert len(listings) == 24
+    assert all(r["latitude"] for r in listings)
+
+
+def test_blocked_detection(html):
+    assert not looks_blocked(html)
+    assert looks_blocked("<html><body>Please verify you are human (captcha)</body></html>")
+
+
+# ---------------------------------------------------------------- analytics
+def test_normalize_monthly_and_yearly(html):
+    listings, _ = parse_search_page(html)
+    listings[1] = {**listings[1], "price": 6000, "rent_frequency": "monthly"}
+    df = normalize(pd.DataFrame(listings))
+    yearly = df.iloc[0]
+    assert yearly.rent_yearly == 42_000 and yearly.rent_monthly == 3_500
+    monthly = df.iloc[1]
+    assert monthly.rent_monthly == 6_000 and monthly.rent_yearly == 72_000
+    assert yearly.bedrooms_label == "Studio"
+    assert yearly.yearly_per_sqft == round(42_000 / 295, 1)
+
+
+def test_value_score_and_summaries(html):
+    df = normalize(pd.DataFrame(parse_search_page(html)[0]))
+    scored = add_value_score(df)
+    lagoons_4br = scored[(scored.community == "DAMAC Lagoons") & (scored.bedrooms_label == "4 BR")]
+    assert lagoons_4br["vs_area_median"].notna().all()
+    assert (lagoons_4br["vs_area_median"] <= 0).any()
+    summary = community_summary(df)
+    assert "Meydan" in summary["community"].values
+
+
+def test_monthly_vs_yearly_premium():
+    rows = []
+    for price in (60_000, 66_000):
+        rows.append(dict(listing_id=f"y{price}", price=price, rent_frequency="yearly",
+                         bedrooms=1, emirate="Dubai", community="JVC"))
+    for price in (6_000, 6_600):
+        rows.append(dict(listing_id=f"m{price}", price=price, rent_frequency="monthly",
+                         bedrooms=1, emirate="Dubai", community="JVC"))
+    out = monthly_vs_yearly(normalize(pd.DataFrame(rows)))
+    assert len(out) == 1
+    assert out.iloc[0]["premium_pct"] == pytest.approx(20.0)
+
+
+def test_distance(html):
+    df = normalize(pd.DataFrame(parse_search_page(html)[0]))
+    near = with_distance(df, 25.1972, 55.2744).sort_values("distance_km")  # Burj Khalifa
+    assert near.iloc[0]["community"] == "Downtown Dubai"
+    assert near.iloc[0]["distance_km"] < 2
+
+
+# ---------------------------------------------------------------- scraper
+class FakeFetcher:
+    """Serves the saved page for page 1..n, then an empty page."""
+
+    def __init__(self, html, pages_with_results=2, block_on=None):
+        self.html = html
+        self.pages = pages_with_results
+        self.block_on = block_on
+        self.urls = []
+
+    def get(self, url):
+        self.urls.append(url)
+        page = int(re.search(r"page-(\d+)", url).group(1)) if "page-" in url else 1
+        if self.block_on == page:
+            raise BlockedError("blocked")
+        if page > self.pages:
+            return "<html><body>No results</body></html>"
+        # Give each page distinct listing ids so dedupe doesn't stop pagination.
+        return re.sub(r"details-(\d+)", lambda m: f"details-{page}{m.group(1)}", self.html)
+
+    def close(self):
+        pass
+
+
+def test_scrape_paginates_and_stops(html):
+    fake = FakeFetcher(html, pages_with_results=2)
+    df = scrape(SearchParams(rent_frequency="yearly"), max_pages=5, fetcher=fake)
+    assert len(df) == 48
+    assert len(fake.urls) == 3  # page 3 empty -> stop
+    assert "page-2/" in fake.urls[1]
+    assert df.attrs["total_count"] == 118_858
+
+
+def test_scrape_returns_partial_results_when_blocked(html):
+    fake = FakeFetcher(html, pages_with_results=5, block_on=2)
+    df = scrape(SearchParams(), max_pages=5, fetcher=fake)
+    assert len(df) == 24
+    assert df.attrs["error"] == "blocked"
+
+
+def test_parse_saved_pages_from_file():
+    df = parse_saved_pages([FIXTURE])
+    assert len(df) == 24
+    assert {"rent_monthly", "rent_yearly", "latitude"} <= set(df.columns)
