@@ -3,6 +3,7 @@ pandas>=2.0
 numpy>=1.24
 plotly>=5.24
 requests>=2.31
+curl_cffi>=0.7          # Chrome TLS impersonation - gets past bayut's bot check
 beautifulsoup4>=4.12
 lxml>=5.0
 # Optional: headless-browser engine for when bayut blocks plain requests

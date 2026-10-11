@@ -9,7 +9,7 @@ from typing import Callable, Iterable
 
 import pandas as pd
 
-from .analytics import normalize
+from .analytics import DATA_DIR, normalize
 from .config import LISTINGS_PER_PAGE
 from .fetcher import BlockedError, Fetcher, make_fetcher
 from .parser import parse_search_page
@@ -19,7 +19,7 @@ ProgressCallback = Callable[[int, int, int], None]   # (page, total_pages, listi
 
 
 def scrape(params: SearchParams, max_pages: int = 5, fetcher: Fetcher | None = None,
-           progress: ProgressCallback | None = None, engine: str = "requests",
+           progress: ProgressCallback | None = None, engine: str = "chrome",
            delay: tuple[float, float] = (2.0, 4.0)) -> pd.DataFrame:
     """Scrape up to ``max_pages`` result pages for one search.
 
@@ -42,10 +42,19 @@ def scrape(params: SearchParams, max_pages: int = 5, fetcher: Fetcher | None = N
             url = build_search_url(params, page)
             try:
                 html = fetcher.get(url)
-            except BlockedError as exc:
+            except (BlockedError, RuntimeError) as exc:
                 error = str(exc)
+                _save_debug_page(fetcher, params, page)
                 break
             listings, count = parse_search_page(html)
+            if page == 1 and not listings and count != 0:
+                # 200 OK but nothing parseable: keep the page so you can see what bayut sent.
+                path = _save_debug_page(fetcher, params, page, html)
+                error = (f"Page 1 returned HTTP {getattr(fetcher, 'last_status', '?')} but no "
+                         f"listings could be parsed. The raw page is saved at {path}. Open it "
+                         "in a browser: a captcha/blank page means a block, a normal results "
+                         "page means bayut changed its markup.")
+                break
             if page == 1 and count is not None:
                 total_count = count
                 total_pages = min(max_pages, max(1, math.ceil(count / LISTINGS_PER_PAGE)))
@@ -74,8 +83,19 @@ def scrape(params: SearchParams, max_pages: int = 5, fetcher: Fetcher | None = N
     return df
 
 
+def _save_debug_page(fetcher, params: SearchParams, page: int, html: str | None = None):
+    html = html if html is not None else getattr(fetcher, "last_html", None)
+    if not html:
+        return None
+    debug_dir = DATA_DIR / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    path = debug_dir / f"{params.label()}_page{page}.html"
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
 def scrape_many(searches: Iterable[SearchParams], max_pages: int = 5,
-                engine: str = "requests", delay: tuple[float, float] = (2.0, 4.0),
+                engine: str = "chrome", delay: tuple[float, float] = (2.0, 4.0),
                 progress: Callable[[SearchParams, int, int, int], None] | None = None
                 ) -> pd.DataFrame:
     """Run several searches with one shared fetcher (e.g. Dubai + Abu Dhabi, monthly + yearly)."""

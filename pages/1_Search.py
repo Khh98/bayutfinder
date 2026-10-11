@@ -2,6 +2,7 @@ import streamlit as st
 
 from bayut_finder.analytics import add_value_score, save_dataset
 from bayut_finder.config import CATEGORIES, EMIRATES, LISTINGS_PER_PAGE, RENT_FREQUENCIES, SORT_OPTIONS
+from bayut_finder.fetcher import ENGINES
 from bayut_finder.scraper import parse_saved_pages, scrape_many
 from bayut_finder.ui import aed, download_button, listings_table, page_setup
 from bayut_finder.urls import SearchParams, build_search_url
@@ -43,9 +44,11 @@ with live_tab:
             area_min = a1.number_input("Min size (sqft)", 0, 50_000, 0, step=50)
             area_max = a2.number_input("Max size (sqft)", 0, 50_000, 0, step=50)
             sort_label = a3.selectbox("Sort", list(SORT_OPTIONS), index=2)
-            engine = a4.radio("Engine", ["requests", "browser"], horizontal=True,
-                              help="'browser' uses Playwright/Chromium - slower but gets past "
-                                   "bot protection more often.")
+            engine = a4.selectbox(
+                "Engine", list(ENGINES),
+                help="chrome: curl_cffi impersonating Chrome's TLS fingerprint (default - this is "
+                     "what gets past bayut's bot check). browser: Playwright/Chromium, slowest. "
+                     "requests: plain Python HTTP, usually blocked.")
             delay = st.slider("Delay between pages (seconds)", 1.0, 15.0, (2.0, 4.0), step=0.5)
 
         submitted = st.form_submit_button("Search bayut", type="primary", width="stretch")

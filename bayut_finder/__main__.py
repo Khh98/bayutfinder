@@ -20,6 +20,7 @@ import sys
 
 from .analytics import community_summary, save_dataset
 from .config import CATEGORIES, EMIRATES, FURNISHING, RENT_FREQUENCIES, SORT_OPTIONS
+from .fetcher import ENGINES
 from .scraper import parse_saved_pages, scrape_many
 from .urls import SearchParams
 
@@ -57,7 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--area-max", type=int, help="sqft")
     s.add_argument("--sort", choices=[v for v in SORT_OPTIONS.values() if v])
     s.add_argument("--pages", type=int, default=3, help="max pages per search (24 listings/page)")
-    s.add_argument("--engine", default="requests", choices=["requests", "browser"])
+    s.add_argument("--engine", default="chrome", choices=list(ENGINES),
+                   help="chrome = curl_cffi Chrome impersonation (default, gets past bot checks)")
     s.add_argument("--delay", type=float, nargs=2, default=[2.0, 4.0], metavar=("MIN", "MAX"))
     s.add_argument("--out", help="CSV path (default: data/<timestamp>_<search>.csv)")
 

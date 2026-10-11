@@ -20,11 +20,23 @@ pip install -r requirements.txt
 streamlit run Home.py
 ```
 
-Optional browser engine (use it if bayut starts returning 403 / challenge pages):
+### Getting past bayut's bot check
 
-```bash
-pip install playwright && playwright install chromium
-```
+Bayut fingerprints the **TLS handshake**, so plain `requests` gets a 403 whatever headers it
+sends. The default `chrome` engine uses [`curl_cffi`](https://github.com/lexiforest/curl_cffi)
+to present a real Chrome fingerprint. That gets through, and it's installed by
+`requirements.txt`. If a page is still refused, the engine retries once with a fresh
+session and another browser fingerprint.
+
+| Engine | When to use |
+|---|---|
+| `chrome` (default) | always try this first |
+| `browser` | if `chrome` also gets blocked: `pip install playwright && playwright install chromium` |
+| `requests` | plain Python HTTP; expect 403s from bayut |
+
+If a search comes back empty, the error tells you the HTTP status, and the raw page is saved
+under `data/debug/`. Open it in a browser: a captcha or blank page means a block; a normal
+results page means bayut changed its markup (save it into `tests/fixtures/` and run `pytest`).
 
 ## Command line
 
@@ -62,7 +74,7 @@ id.
 | Module | Purpose |
 |---|---|
 | `urls.py` | `SearchParams` → bayut search URL (`/to-rent/<type>/<emirate>/<area>/page-N/?rent_frequency=...`) |
-| `fetcher.py` | polite `requests` session (random delay, retries, block detection) or Playwright |
+| `fetcher.py` | `chrome` (curl_cffi impersonation), `browser` (Playwright) or `requests`; random delay, retries, fingerprint rotation, block detection |
 | `scraper.py` | pagination, de-duplication, partial results when blocked, saved-page import |
 | `analytics.py` | monthly ↔ yearly normalisation, value score, community summary, monthly premium, distances |
 | `ui.py` | shared Streamlit filters, tables, colours |

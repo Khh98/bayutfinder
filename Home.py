@@ -49,8 +49,10 @@ with st.expander("How rent is compared"):
 
 with st.expander("If bayut blocks the scraper"):
     st.markdown("""
-1. Increase the delay between pages (Search page → *Advanced*).
-2. Switch the engine to **browser** (needs `pip install playwright && playwright install chromium`).
+1. Make sure the engine is **chrome** (Search page → *Advanced*, default). It needs
+   `pip install curl_cffi`. Plain `requests` gets blocked by bayut's TLS fingerprint check.
+2. Increase the delay between pages, or try the **browser** engine
+   (`pip install playwright && playwright install chromium`).
 3. Or open the search on bayut.com in your own browser, save each results page with
    **Ctrl+S**, and drop the files into *Search → Import saved pages*. Same columns, same analysis.
 """)

@@ -1,4 +1,6 @@
 import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pandas as pd
@@ -7,7 +9,7 @@ import pytest
 from bayut_finder import (SearchParams, add_value_score, build_search_url, community_summary,
                           monthly_vs_yearly, normalize, parse_saved_pages, parse_search_page,
                           scrape, with_distance)
-from bayut_finder.fetcher import BlockedError
+from bayut_finder.fetcher import BlockedError, ChromeFetcher, make_fetcher
 from bayut_finder.parser import looks_blocked
 
 FIXTURE = Path(__file__).parent / "fixtures" / "dubai_rent_page1.html"
@@ -176,3 +178,79 @@ def test_parse_saved_pages_from_file():
     df = parse_saved_pages([FIXTURE])
     assert len(df) == 24
     assert {"rent_monthly", "rent_yearly", "latitude"} <= set(df.columns)
+
+
+# ---------------------------------------------------------------- chrome engine (curl_cffi)
+@pytest.fixture()
+def fake_bayut(html, monkeypatch):
+    """Local server: /ok serves the saved page, /block403-once refuses the first hit,
+    /empty serves a page without listings."""
+    for var in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    hits = {"block": 0, "agents": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            hits["agents"].append(self.headers.get("User-Agent", ""))
+            if self.path.startswith("/block403-once") and hits["block"] == 0:
+                hits["block"] += 1
+                code, body = 403, "Forbidden"
+            elif self.path.startswith("/empty"):
+                code, body = 200, "<html><body><p>nothing here</p></body></html>"
+            else:
+                code, body = 200, html
+            data = body.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}", hits
+    server.shutdown()
+
+
+def test_chrome_engine_is_default():
+    pytest.importorskip("curl_cffi")
+    fetcher = make_fetcher(delay=(0, 0))
+    assert isinstance(fetcher, ChromeFetcher)
+    fetcher.close()
+
+
+def test_chrome_fetcher_parses_page_and_sends_chrome_user_agent(fake_bayut):
+    pytest.importorskip("curl_cffi")
+    base, hits = fake_bayut
+    fetcher = ChromeFetcher(delay=(0, 0))
+    listings, total = parse_search_page(fetcher.get(f"{base}/ok"))
+    fetcher.close()
+    assert len(listings) == 24 and total == 118_858
+    assert "Chrome/" in hits["agents"][0]  # UA comes from the impersonation, not from us
+
+
+def test_chrome_fetcher_rotates_fingerprint_after_403(fake_bayut, monkeypatch):
+    pytest.importorskip("curl_cffi")
+    monkeypatch.setattr("bayut_finder.fetcher.time.sleep", lambda s: None)
+    base, hits = fake_bayut
+    fetcher = ChromeFetcher(delay=(0, 0))
+    first = fetcher.impersonate
+    page = fetcher.get(f"{base}/block403-once")
+    assert "RealEstateListing" in page
+    assert fetcher.impersonate != first
+    fetcher.close()
+
+
+def test_empty_page_reports_and_saves_debug_html(fake_bayut, tmp_path, monkeypatch):
+    pytest.importorskip("curl_cffi")
+    monkeypatch.setattr("bayut_finder.scraper.DATA_DIR", tmp_path)
+    monkeypatch.setattr("bayut_finder.scraper.build_search_url", lambda p, page: f"{base}/empty")
+    base, _ = fake_bayut
+    df = scrape(SearchParams(), max_pages=3, fetcher=ChromeFetcher(delay=(0, 0)))
+    assert df.empty
+    assert "HTTP 200" in df.attrs["error"] and "saved" in df.attrs["error"]
+    saved = list((tmp_path / "debug").glob("*.html"))
+    assert len(saved) == 1 and "nothing here" in saved[0].read_text()
