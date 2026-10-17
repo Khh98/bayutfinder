@@ -12,6 +12,8 @@ contracts can be compared on one scale before you decide where to rent.
 - **Map**: every listing on an OpenStreetMap map; find the closest options to a landmark
   or any place you type (OpenStreetMap geocoding, no API key).
 
+📘 **Full visual guide:** [`docs/Bayut_Finder_Guide.pdf`](docs/Bayut_Finder_Guide.pdf): how each filter maps to a Bayut search, how listings become numbers, pitfalls, troubleshooting and next steps.
+
 ## Setup
 
 ```bash
